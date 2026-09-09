@@ -4,12 +4,14 @@ Update this file whenever the current phase, active feature, or implementation s
 
 ## Current Phase
 
-- Foundation: design system and UI primitives
+- Editor: base chrome components (navbar + project sidebar shell)
 
 ## Current Goal
 
-- Foundation UI is in place (shadcn/ui primitives + dark-only Ghost AI theme).
-  Ready to start the next feature unit.
+- Editor chrome from `02-editor` is in place and composed into the `/editor`
+  route via `EditorShell` (navbar + floating project sidebar, sidebar open state
+  owned by the shell). Canvas region is still a placeholder; the reusable
+  `EditorDialog` shell exists but is not mounted yet.
 
 ## Completed
 
@@ -42,12 +44,49 @@ Update this file whenever the current phase, active feature, or implementation s
     `--bg-base` custom property and `bg-base` / `text-brand` / `text-copy-primary`
     utilities.
 
+- `02-editor` (base chrome components):
+  - `components/editor/editor-navbar.tsx` — client component. Fixed-height
+    (`h-14`) top bar with three equal-width flex sections (left / center /
+    right). Left section holds the sidebar toggle (`Button` ghost/icon) which
+    swaps `PanelLeftClose` / `PanelLeftOpen` on the `isSidebarOpen` prop and
+    calls `onToggleSidebar`. Center and right sections are empty placeholders.
+    `bg-surface` + `border-b border-surface-border`.
+  - `components/editor/project-sidebar.tsx` — client component. Floating overlay
+    panel: `absolute inset-y-3 left-3 w-80 z-40`, so it layers over the canvas
+    without pushing page content. Slides in from the left via a
+    `translate-x` / `opacity` transition driven by the `isOpen` prop; hidden
+    state also sets `pointer-events-none` + `inert`. Header with `Projects`
+    title and a close button (`onClose`). shadcn `Tabs` (`My Projects` /
+    `Shared`), each tab a centered empty placeholder (`FolderOpen` / `Users`
+    feature icon + muted text) inside a `ScrollArea`. Full-width `New Project`
+    button with `Plus` icon pinned to the bottom.
+  - `components/editor/editor-dialog.tsx` — client component. Reusable dialog
+    shell wrapping the shadcn `Dialog` primitives with Ghost AI tokens
+    (`rounded-3xl`, `bg-elevated`, `border-surface-border`) and fixed
+    `title` / `description` / `children` / `footer` slots. Controlled via
+    `open` + `onOpenChange`. No concrete dialogs built yet — this is the
+    pattern feature dialogs compose.
+  - `components/editor/editor-shell.tsx` — client component. Full-viewport
+    workspace layout that composes the chrome: owns the sidebar open state
+    (`useState`), passes `isSidebarOpen` / `onToggleSidebar` to `EditorNavbar`
+    and `isOpen` / `onClose` to `ProjectSidebar`. Center region is a
+    placeholder for the collaborative canvas. The sidebar's positioning
+    anchor is the inner `relative flex-1` region here.
+  - `app/editor/page.tsx` — server component route (`/editor`) that renders
+    `<EditorShell />`. First editor route in the app.
+  - `EditorDialog` is intentionally not mounted yet — `02-editor` says not to
+    build concrete dialogs; it stays available as the pattern.
+  - Verified: `tsc --noEmit`, `eslint`, and `next build` all pass; `/editor`
+    is emitted as a static route.
+
 ## In Progress
 
 - None.
 
 ## Next Up
 
+- Wire the sidebar `New Project` button to an `EditorDialog` instance once
+  project creation is defined.
 - Add Geist Mono (`--font-geist-mono`) alongside Geist Sans for code/mono contexts
   per `ui-context.md`.
 - Begin the next product feature unit (auth + projects, or canvas scaffolding).
