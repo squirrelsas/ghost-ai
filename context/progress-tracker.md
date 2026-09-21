@@ -4,8 +4,8 @@ Update this file whenever the current phase, active feature, or implementation s
 
 ## Current Phase
 
-- `04-project-dialogs`: editor home + project create/rename/delete dialogs and
-  sidebar actions wired against mock data (complete)
+- `05-prisma`: `Project` / `ProjectCollaborator` models, the `lib/prisma.ts`
+  client singleton, and the first migration (complete)
 
 ## Current Goal
 
@@ -203,6 +203,40 @@ Update this file whenever the current phase, active feature, or implementation s
     width opening the sidebar shows the mobile backdrop and tapping outside
     the panel closes it. No console errors during the run.
 
+- `05-prisma`:
+  - `prisma/models/project.prisma` — new multi-file schema piece (the base
+    `prisma/schema.prisma` only holds the `generator`/`datasource` blocks;
+    `prisma7.config.ts` points `schema` at the `prisma/` directory, which is
+    what makes Prisma merge every `.prisma` file under it). Adds
+    `ProjectStatus` (`DRAFT` / `ARCHIVED`), `Project` (`ownerId`, `name`,
+    optional `description`, `status`, `canvasJsonPath` for the future
+    Vercel Blob canvas snapshot reference per `architecture-context.md`,
+    timestamps, indexes on `ownerId` and `createdAt`), and
+    `ProjectCollaborator` (`projectId` with `onDelete: Cascade`, `email`,
+    `createdAt`, unique on `[projectId, email]`, indexes on `email` and
+    `[projectId, createdAt]`). IDs are `cuid()`.
+  - `lib/prisma.ts` — cached singleton on `globalThis` (dev-only, so hot
+    reload doesn't open a new pool every save). Branches on `DATABASE_URL`:
+    a `prisma+postgres://` prefix uses the `accelerateUrl` constructor
+    option, anything else builds a `PrismaPg` (`@prisma/adapter-pg`)
+    instance and passes it as `adapter` — `accelerateUrl` and `adapter` are
+    mutually exclusive on `PrismaClientOptions` in this Prisma version.
+    Local dev's `DATABASE_URL` is the direct `postgres://...pooled.db.prisma.io...`
+    TCP string, so it currently takes the adapter branch.
+  - Ran `prisma migrate dev --name init_project_models` (applied against the
+    Prisma Postgres dev database) then `prisma generate` — `migrate dev`
+    did not auto-run `generate` in this version, so it needs to follow as
+    its own step until real API routes make it part of a script.
+  - Prisma 7's `prisma-client` generator (configured in `schema.prisma` with
+    `output = "../app/generated/prisma"`) does not emit an `index.ts`; the
+    importable entry point is `client.ts` (re-exports `PrismaClient`,
+    `Prisma` namespace, model types, enums). Import as
+    `@/app/generated/prisma/client`, not `@/app/generated/prisma`.
+  - `/app/generated/prisma` was already in `.gitignore` from the earlier
+    `prisma init`, so the generated client stays untracked.
+  - Verified: `prisma validate`, `tsc --noEmit`, `eslint`, and `next build`
+    all pass.
+
 - `04-project-dialogs` accessibility fixes (CodeRabbit follow-up):
   - `components/editor/project-sidebar.tsx` — the row kebab button was hidden
     (`opacity-0`) until `group-hover`, which is unreachable on touch devices
@@ -224,10 +258,10 @@ Update this file whenever the current phase, active feature, or implementation s
 
 - Add Geist Mono (`--font-geist-mono`) alongside Geist Sans for code/mono contexts
   per `ui-context.md`.
-- Begin the next real product unit: persist projects for real (Prisma +
-  `app/api` routes) behind the create/rename/delete dialogs built in
-  `04-project-dialogs`, replacing `useProjectDialogs`'s mock list and
-  artificial latency with actual requests — or canvas scaffolding.
+- Build `app/api` routes for project create/rename/delete on top of the new
+  `Project` / `ProjectCollaborator` models and `lib/prisma.ts`, then rewire
+  `useProjectDialogs` to call them instead of mutating the mock list —
+  `lib/mock-projects.ts` gets deleted at that point.
 
 ## Open Questions
 
@@ -256,6 +290,13 @@ Update this file whenever the current phase, active feature, or implementation s
   interface. Wiring in `app/api` means rewriting the hook's mutations to call
   those routes instead of mutating local state — `mock-projects.ts` itself
   just gets deleted at that point.
+- Prisma schema is split across `prisma/schema.prisma` (generator +
+  datasource only) and `prisma/models/*.prisma` (one file per model group),
+  merged via `prisma7.config.ts`'s `schema: "prisma/"` directory pointer.
+  New models go in `prisma/models/`, not the root schema file.
+- `lib/prisma.ts` is the only place that constructs `PrismaClient` — routes
+  and other server code import the `prisma` singleton from there rather than
+  instantiating their own client or adapter.
 
 ## Session Notes
 
