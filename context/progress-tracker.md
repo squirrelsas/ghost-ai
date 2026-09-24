@@ -4,20 +4,30 @@ Update this file whenever the current phase, active feature, or implementation s
 
 ## Current Phase
 
-- `05-prisma`: `Project` / `ProjectCollaborator` models, the `lib/prisma.ts`
-  client singleton, and the first migration (complete)
+- `07-wire-editor-home`: sidebar and dialogs run on the real `Project` model
+  through `app/api/projects`, with a real workspace route to navigate to
+  (complete)
 
 ## Current Goal
 
-- Editor chrome from `02-editor` is composed into the `/editor` route via
-  `EditorShell`. The canvas region now shows `EditorHome` (empty-state heading
-  + description + `New Project` button) until real project routing exists.
-- `04-project-dialogs` is done: `useProjectDialogs` owns an in-memory mock
-  project list plus create/rename/delete dialog, form, and loading state; the
-  three dialogs compose the existing `EditorDialog` shell; the sidebar lists
-  owned/shared projects with rename/delete actions (owned only) via a
-  `DropdownMenu`; mobile gets a tap-outside-to-close backdrop. No API calls or
-  persistence yet — that's the next real product unit.
+- `07-wire-editor-home` is done: `/editor` and the new `/editor/[projectId]`
+  are server components that fetch owned/shared projects via
+  `lib/projects.ts` and pass them into `EditorShell`. `useProjectActions`
+  (replacing `useProjectDialogs`) drives create/rename/delete against the
+  real `app/api/projects` routes — no more mock list, `lib/mock-projects.ts`
+  is deleted. The next real product unit is the actual collaborative canvas
+  (Liveblocks + React Flow) behind `EditorWorkspace`, which is currently just
+  a name-only placeholder.
+- Editor chrome from `02-editor` is composed into the `/editor` and
+  `/editor/[projectId]` routes via `EditorShell`. The canvas region shows
+  `EditorHome` (empty state) when no project is open, or `EditorWorkspace`
+  (project name only, "Canvas coming soon") once one is.
+- `04-project-dialogs` is done: the create/rename/delete dialog, form, and
+  loading-state pattern it introduced now runs on real data (superseded by
+  `07-wire-editor-home` — see above). The three dialogs still compose the
+  existing `EditorDialog` shell; the sidebar lists owned/shared projects with
+  rename/delete actions (owned only) via a `DropdownMenu`; mobile gets a
+  tap-outside-to-close backdrop.
 - Authentication (`03-auth`) is done: every route is protected by default via
   `proxy.ts`, `/sign-in` and `/sign-up` are the only public routes, and `/`
   bounces authenticated users to `/editor`.
@@ -217,12 +227,14 @@ Update this file whenever the current phase, active feature, or implementation s
     `[projectId, createdAt]`). IDs are `cuid()`.
   - `lib/prisma.ts` — cached singleton on `globalThis` (dev-only, so hot
     reload doesn't open a new pool every save). Branches on `DATABASE_URL`:
-    a `prisma+postgres://` prefix uses the `accelerateUrl` constructor
-    option, anything else builds a `PrismaPg` (`@prisma/adapter-pg`)
-    instance and passes it as `adapter` — `accelerateUrl` and `adapter` are
-    mutually exclusive on `PrismaClientOptions` in this Prisma version.
-    Local dev's `DATABASE_URL` is the direct `postgres://...pooled.db.prisma.io...`
-    TCP string, so it currently takes the adapter branch.
+    a `prisma://` or `prisma+postgres://` prefix (both Accelerate URL
+    schemes — see the PR #5 CodeRabbit fix below) uses the `accelerateUrl`
+    constructor option, anything else builds a `PrismaPg`
+    (`@prisma/adapter-pg`) instance and passes it as `adapter` —
+    `accelerateUrl` and `adapter` are mutually exclusive on
+    `PrismaClientOptions` in this Prisma version. Local dev's `DATABASE_URL`
+    is the direct `postgres://...pooled.db.prisma.io...` TCP string, so it
+    currently takes the adapter branch.
   - Ran `prisma migrate dev --name init_project_models` (applied against the
     Prisma Postgres dev database) then `prisma generate` — `migrate dev`
     did not auto-run `generate` in this version, so it needs to follow as
@@ -237,6 +249,44 @@ Update this file whenever the current phase, active feature, or implementation s
   - Verified: `prisma validate`, `tsc --noEmit`, `eslint`, and `next build`
     all pass.
 
+- `06-project-apis`:
+  - `app/api/projects/route.ts` — `GET` lists the authenticated user's own
+    projects (`where: { ownerId: userId }`, newest first); `POST` creates a
+    project owned by that user, defaulting a missing/blank `name` to
+    `"Untitled Project"` and returning `201`. IDs come from the schema's
+    existing `cuid()` default — no sequential IDs added.
+  - `app/api/projects/[projectId]/route.ts` — `PATCH` renames (400 if `name`
+    is missing/blank after trimming); `DELETE` removes the project (cascades
+    to `ProjectCollaborator` rows via the existing `onDelete: Cascade`). Both
+    look the project up first (`404` if it doesn't exist) and compare
+    `project.ownerId` to the caller's Clerk user ID (`403` if it doesn't
+    match) before mutating.
+  - `proxy.ts` — added `"/api(.*)"` to the public-route matcher so
+    `auth.protect()` never runs against API requests. Clerk's `protect()`
+    resolves unauthenticated *page* requests to a sign-in redirect, but
+    unauthenticated *non-page* requests (like a plain `fetch` to `/api/...`,
+    verified by reading `@clerk/nextjs`'s `protect.js`) resolve to a `404`,
+    not a `401` — which would have violated this feature's `401` requirement
+    before a route handler ever ran. Each route now calls `auth()` itself and
+    returns `401` explicitly when `userId` is missing, giving the exact
+    status codes the spec calls for. This means every future `app/api` route
+    is responsible for its own auth check — the middleware no longer provides
+    a protection backstop for that tree.
+  - Verified: `tsc --noEmit`, `eslint`, and `next build` all pass (both
+    routes show up as dynamic `ƒ` routes in the build output). Also
+    smoke-tested unauthenticated requests against a real `next dev` server:
+    `GET`/`POST /api/projects` and `PATCH`/`DELETE /api/projects/[id]` all
+    return `401 {"error":"Unauthorized"}` with no session cookie. Did not
+    verify the authenticated owner/non-owner paths end-to-end (create,
+    rename, delete, `403` on a non-owner) against a real Clerk session or the
+    live dev database — same sign-up/impersonation blocker noted under
+    `03-auth` in Session Notes, and pulling `DATABASE_URL` out of
+    `.env.local` to script a direct check was blocked by the harness as
+    credential exposure. The route logic is straightforward Prisma CRUD
+    type-checked against the real `Project` model, but a real authenticated
+    pass is still open.
+  - No UI wiring yet, per spec — wired up in `07-wire-editor-home` below.
+
 - `04-project-dialogs` accessibility fixes (CodeRabbit follow-up):
   - `components/editor/project-sidebar.tsx` — the row kebab button was hidden
     (`opacity-0`) until `group-hover`, which is unreachable on touch devices
@@ -250,6 +300,112 @@ Update this file whenever the current phase, active feature, or implementation s
     `aria-label="Project name"`.
   - Verified: `tsc --noEmit`, `eslint`, `next build` all pass.
 
+- `07-wire-editor-home`:
+  - `types/project.ts` — dropped `slug` (the real `Project` model has no such
+    column; the sidebar only ever rendered `name`).
+  - `lib/projects.ts` — new shared server-only helper, `getEditorProjects()`.
+    Calls `auth()` for the Clerk `userId` and `currentUser()` for the primary
+    email, then queries owned projects (`ownerId: userId`) and shared
+    projects (`collaborators: { some: { email } } }`) in parallel, mapping
+    both into the `Project` shape (`id`, `name`, `role`). This is the
+    "project data helper" the spec calls for — it did not exist before this
+    feature; it's now the single place both editor routes pull sidebar data
+    from.
+  - `app/editor/page.tsx` — now an async server component: calls
+    `getEditorProjects()` and passes `ownedProjects` / `sharedProjects` into
+    `EditorShell`. No `activeProject`, so the canvas region still shows
+    `EditorHome`. No client-side fetch for the initial list, per spec.
+  - `app/editor/[projectId]/page.tsx` — new route, the "workspace" that
+    create navigates to. Server component: loads the project (with its
+    `collaborators`) via `prisma` directly, `notFound()`s if it doesn't exist
+    or the caller is neither the owner nor a collaborator (matched by email),
+    otherwise renders `EditorShell` with `activeProject` set. No canvas spec
+    exists yet, so the center region is `EditorWorkspace` — a deliberately
+    minimal placeholder (project name + "Canvas coming soon"), not an
+    invented canvas UI.
+  - `hooks/use-project-actions.ts` — replaces `use-project-dialogs.ts`
+    (deleted, along with `lib/mock-projects.ts`). Same dialog-state shape as
+    before, but every mutation calls the real API:
+    - Create: generates the room ID client-side once per dialog-open — a
+      slugified-name-derived preview combined with a suffix that's fixed for
+      that dialog session (`crypto.randomUUID()`, first 6 hex chars) — POSTs
+      `{ name, id: roomId }`, then `router.push`es to `/editor/{id}`. The
+      generated ID becomes the Prisma project row's actual `id` (see the API
+      change below), so it's already aligned with the future Liveblocks room
+      name with no separate mapping field needed.
+    - Rename: `PATCH /api/projects/[id]`, then `router.refresh()` (re-runs
+      the server component, refetching via `getEditorProjects()`).
+    - Delete: `DELETE /api/projects/[id]`; if the deleted project is the
+      currently open workspace (`activeProjectId`), `router.push("/editor")`,
+      otherwise `router.refresh()`.
+    - Added an `error` string surfaced by each dialog — the mock hook never
+      failed, but real `fetch` calls can, and silently swallowing that would
+      leave the dialog spinning with no feedback.
+  - `app/api/projects/route.ts` — `POST` now accepts an optional client
+    `id` (validated against `^[a-z0-9-]{1,64}$`, `400` if present but
+    invalid) and creates the project with that ID instead of the schema's
+    default `cuid()`. A `P2002` unique-constraint failure (colliding ID)
+    returns `409` instead of an unhandled `500`.
+  - `components/editor/editor-shell.tsx` — now takes `ownedProjects` /
+    `sharedProjects` / `activeProject` as props instead of owning mock state;
+    renders `EditorWorkspace` in place of `EditorHome` when `activeProject`
+    is set.
+  - `components/editor/editor-workspace.tsx` — new, minimal by design (see
+    above).
+  - `create-project-dialog.tsx` — slug preview line replaced with the room
+    ID preview (`Room ID: {roomIdPreview}`); rename/delete dialogs gained an
+    `error` prop rendered as inline `text-error` copy.
+  - Verified: `tsc --noEmit`, `eslint`, `next build` all pass (`/editor` and
+    `/editor/[projectId]` both show up as dynamic `ƒ` routes). Also
+    smoke-tested against a real `next dev` server: unauthenticated `/`,
+    `/editor`, and `/editor/[projectId]` all still 307-redirect to
+    `/sign-in` (no regression from the new dynamic route). Using the same
+    temporary-`isPublicRoute`-bypass technique documented in Session Notes
+    (reverted before finishing — `git diff proxy.ts` confirmed it matches
+    `06-project-apis`'s state exactly afterward): `/editor` renders
+    `EditorHome` with empty owned/shared lists (no crash from `auth()` /
+    `currentUser()` resolving to null server-side), `/editor/some-fake-id`
+    404s via `notFound()`, and a headless-Chromium check confirmed the
+    create dialog opens, the room ID preview updates live from a typed name
+    (`My Cool System` → `Room ID: my-cool-system-eee07d`), and there were no
+    console errors. Did not verify the authenticated golden path (create →
+    navigate to `/editor/[id]` → rename → delete/redirect) against a real
+    signed-in session — same Clerk Turnstile sign-up blocker noted under
+    `03-auth` and `06-project-apis` in Session Notes.
+
+- PR #5 CodeRabbit fixes (build reliability):
+  - `package.json` — the generated Prisma client (`app/generated/prisma`) is
+    gitignored, so a clean checkout had no client at all until someone
+    manually ran `prisma generate`; `next build` failed immediately on a
+    fresh clone or a clean CI/Vercel checkout. Added
+    `"postinstall": "prisma generate"` (this is what actually covers a Vercel
+    deployment — Vercel always runs the install step, which now regenerates
+    the client automatically) and changed `"build"` to
+    `"prisma generate && next build"` as a second guard for the case where
+    `build` runs without a preceding fresh `install` (e.g. a cached
+    `node_modules` with a stale/missing `app/generated`, as reproduced
+    locally by deleting `app/generated` and running `npm run build` alone).
+  - `lib/prisma.ts` — `createPrismaClient()` only recognized the
+    `prisma+postgres://` Accelerate URL scheme. Prisma documents two:
+    `prisma://` (classic Accelerate) and `prisma+postgres://` (Prisma
+    Postgres). A `prisma://` URL was falling through to the `PrismaPg`
+    driver-adapter branch, which only accepts direct `postgres://` /
+    `postgresql://` connection strings and fails on Accelerate URLs. The
+    `if` now checks both schemes before choosing `accelerateUrl` over the
+    adapter; plain `postgres://` URLs still take the existing `PrismaPg`
+    path unchanged. Kept the check as a single inlined `if` (not extracted
+    into a helper function) because TypeScript's optional-chaining
+    narrowing of `databaseUrl` from `string | undefined` to `string` inside
+    the `if` block only works when the `?.startsWith(...)` calls are
+    written directly in the condition — pulling them into a separate
+    function that returns `boolean` breaks that narrowing and reintroduces
+    a type error on `accelerateUrl: string | undefined`.
+  - Verified end to end: deleted `app/generated/`, ran `npm install` alone
+    and confirmed the `postinstall` hook regenerated it; deleted
+    `app/generated/` again and ran `npm run build` alone (no preceding
+    install) to confirm the `build` script's own `prisma generate` step
+    also covers that path. `tsc --noEmit` and `eslint` both pass.
+
 ## In Progress
 
 - None.
@@ -258,10 +414,11 @@ Update this file whenever the current phase, active feature, or implementation s
 
 - Add Geist Mono (`--font-geist-mono`) alongside Geist Sans for code/mono contexts
   per `ui-context.md`.
-- Build `app/api` routes for project create/rename/delete on top of the new
-  `Project` / `ProjectCollaborator` models and `lib/prisma.ts`, then rewire
-  `useProjectDialogs` to call them instead of mutating the mock list —
-  `lib/mock-projects.ts` gets deleted at that point.
+- Build the real collaborative canvas (Liveblocks + React Flow) behind
+  `EditorWorkspace`, per `architecture-context.md`'s Canvas layer — currently
+  just a name-only placeholder. This is also the point to close the open
+  verification gap: exercise create/rename/delete through the real UI against
+  a signed-in Clerk session instead of only the unauthenticated path.
 
 ## Open Questions
 
@@ -282,14 +439,27 @@ Update this file whenever the current phase, active feature, or implementation s
   everything not matched by `NEXT_PUBLIC_CLERK_SIGN_IN_URL` / `_SIGN_UP_URL`), and
   `/` relies on that protection rather than checking `auth()` itself — it is only
   ever reached by an authenticated request, so it just redirects to `/editor`.
-- For a not-yet-persisted feature, the dedicated hook (e.g.
-  `use-project-dialogs.ts`) is the integration point for real persistence, not
-  the seed data file. The hook owns the live state and every mutation
-  (`setProjects` on create/rename/delete); `lib/mock-projects.ts` only supplies
-  the initial value passed to `useState`, typed against a `types/*.ts`
-  interface. Wiring in `app/api` means rewriting the hook's mutations to call
-  those routes instead of mutating local state — `mock-projects.ts` itself
-  just gets deleted at that point.
+- Project list data flows one way: server components (`app/editor/page.tsx`,
+  `app/editor/[projectId]/page.tsx`) fetch via `lib/projects.ts`'s
+  `getEditorProjects()` and pass `ownedProjects` / `sharedProjects` down as
+  props — no client-side fetch for the initial list. A client hook
+  (`use-project-actions.ts`) owns only dialog/form state and mutations
+  (create/rename/delete against `app/api/projects`); after a mutation it
+  calls `router.refresh()` (or `router.push()` for create/delete-active) to
+  re-run the server component rather than patching local state, so the
+  props stay the single source of truth.
+- A project's Prisma `id` doubles as its future Liveblocks room name — there
+  is no separate room-ID column. The client generates the ID before
+  creation (slugified name + a short random suffix, in
+  `use-project-actions.ts`) and `POST /api/projects` accepts that ID
+  (validated against `^[a-z0-9-]{1,64}$`) instead of always falling back to
+  the schema's default `cuid()`. Any future Liveblocks room setup should key
+  off `project.id` directly rather than introducing a new field.
+- `app/editor/[projectId]` is the workspace route; it renders `EditorShell`
+  with `activeProject` set, which swaps `EditorHome` for `EditorWorkspace`.
+  `EditorWorkspace` is intentionally a bare placeholder (name + "coming
+  soon") until a canvas feature spec exists — do not add canvas behavior
+  there without a spec, per `ai-workflow-rules.md`.
 - Prisma schema is split across `prisma/schema.prisma` (generator +
   datasource only) and `prisma/models/*.prisma` (one file per model group),
   merged via `prisma7.config.ts`'s `schema: "prisma/"` directory pointer.
@@ -297,6 +467,18 @@ Update this file whenever the current phase, active feature, or implementation s
 - `lib/prisma.ts` is the only place that constructs `PrismaClient` — routes
   and other server code import the `prisma` singleton from there rather than
   instantiating their own client or adapter.
+- `app/generated/prisma` (the Prisma Client output) is gitignored on purpose
+  and must never be committed — it's regenerated by `"postinstall"` (runs on
+  every `npm install`, which is what a Vercel deployment actually triggers)
+  and again by `"build"` itself (`prisma generate && next build`) as a
+  belt-and-suspenders guard. Both are in `package.json`; don't remove either
+  without confirming a clean checkout can still produce a working build.
+- `proxy.ts` treats `/api(.*)` as a public route on purpose — it is not
+  actually public. `app/api` route handlers enforce their own `auth()` check
+  and return `401`/`403` themselves, because Clerk's `auth.protect()` returns
+  a `404` (not `401`) for unauthenticated non-page requests. Every new
+  `app/api` route must call `auth()` and check `userId` itself; the
+  middleware provides no auth backstop for that tree.
 
 ## Session Notes
 

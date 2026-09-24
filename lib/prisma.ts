@@ -8,7 +8,9 @@ const globalForPrisma = globalThis as unknown as {
 function createPrismaClient() {
   const databaseUrl = process.env.DATABASE_URL;
 
-  if (databaseUrl?.startsWith("prisma+postgres://")) {
+  // Prisma Accelerate / Prisma Postgres URLs use either scheme; both take
+  // `accelerateUrl`, not the driver adapter.
+  if (databaseUrl?.startsWith("prisma://") || databaseUrl?.startsWith("prisma+postgres://")) {
     return new PrismaClient({ accelerateUrl: databaseUrl });
   }
 

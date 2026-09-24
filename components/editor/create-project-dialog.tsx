@@ -7,19 +7,21 @@ import { Input } from "@/components/ui/input";
 interface CreateProjectDialogProps {
   open: boolean;
   name: string;
-  slugPreview: string;
+  roomIdPreview: string;
   isSubmitting: boolean;
+  error: string | null;
   onNameChange: (name: string) => void;
   onOpenChange: (open: boolean) => void;
   onSubmit: () => void;
 }
 
-/** Dialog for creating a new project, with a live slug preview derived from the name. */
+/** Dialog for creating a new project, with a live room ID preview derived from the name. */
 export function CreateProjectDialog({
   open,
   name,
-  slugPreview,
+  roomIdPreview,
   isSubmitting,
+  error,
   onNameChange,
   onOpenChange,
   onSubmit,
@@ -55,9 +57,8 @@ export function CreateProjectDialog({
           onChange={(event) => onNameChange(event.target.value)}
           disabled={isSubmitting}
         />
-        <p className="text-xs text-copy-faint">
-          {slugPreview ? `/${slugPreview}` : "Enter a name to preview the project URL."}
-        </p>
+        <p className="text-xs text-copy-faint">Room ID: {roomIdPreview}</p>
+        {error ? <p className="text-xs text-error">{error}</p> : null}
       </form>
     </EditorDialog>
   );

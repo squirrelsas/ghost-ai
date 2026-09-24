@@ -8,6 +8,7 @@ interface DeleteProjectDialogProps {
   open: boolean;
   project: Project | null;
   isSubmitting: boolean;
+  error: string | null;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
 }
@@ -17,6 +18,7 @@ export function DeleteProjectDialog({
   open,
   project,
   isSubmitting,
+  error,
   onOpenChange,
   onConfirm,
 }: DeleteProjectDialogProps) {
@@ -35,6 +37,8 @@ export function DeleteProjectDialog({
           {isSubmitting ? "Deleting…" : "Delete project"}
         </Button>
       }
-    />
+    >
+      {error ? <p className="text-xs text-error">{error}</p> : null}
+    </EditorDialog>
   );
 }
