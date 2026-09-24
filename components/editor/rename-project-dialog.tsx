@@ -10,6 +10,7 @@ interface RenameProjectDialogProps {
   project: Project | null;
   name: string;
   isSubmitting: boolean;
+  error: string | null;
   onNameChange: (name: string) => void;
   onOpenChange: (open: boolean) => void;
   onSubmit: () => void;
@@ -21,6 +22,7 @@ export function RenameProjectDialog({
   project,
   name,
   isSubmitting,
+  error,
   onNameChange,
   onOpenChange,
   onSubmit,
@@ -55,6 +57,7 @@ export function RenameProjectDialog({
           onChange={(event) => onNameChange(event.target.value)}
           disabled={isSubmitting}
         />
+        {error ? <p className="mt-2 text-xs text-error">{error}</p> : null}
       </form>
     </EditorDialog>
   );
